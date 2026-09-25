@@ -1,0 +1,11 @@
+{
+  "SMOKE_ENABLED": "true",
+  "APP_ENV": "staging",
+  "API_BASE_URL": "https://<test-backend-host>  (or http://localhost:8080 through adb reverse)",
+  "DEVICE_KEY": "<test backend device key>",
+  "SMOKE_PIN": "<GRINDING_WORKER A PIN on the test backend>",
+  "SMOKE_PIN_B": "<optional: GRINDING_WORKER B PIN>",
+  "SMOKE_READY_IDENTIFIER": "<12-digit number of a READY_FOR_GRINDING source>",
+  "SMOKE_AMBIGUOUS_IDENTIFIER": "<optional: 12-digit number that is both a roll and a pallet>",
+  "SMOKE_PENDING_IDENTIFIER": "<optional: 12-digit number of a PENDING_APPROVAL source>"
+}

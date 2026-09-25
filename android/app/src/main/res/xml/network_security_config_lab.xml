@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lab builds only (dart-define ALLOW_CLEARTEXT_LAB=true, selected in
+     app/build.gradle.kts): cleartext is allowed to the owner's plain-HTTP lab
+     backend and nothing else. Owner-approved 2026-09-22 on the condition that
+     such a build carries disposable test credentials and a test device key
+     only. Every other host stays HTTPS-only. The Dart layer names the same
+     host (AppConfig.cleartextLabHost). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">hamzadamra.ddns.net</domain>
+    </domain-config>
+</network-security-config>

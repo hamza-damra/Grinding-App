@@ -1,0 +1,5 @@
+{
+  "APP_ENV": "dev",
+  "API_BASE_URL": "http://localhost:8080",
+  "DEVICE_KEY": "<dedicated development device key>"
+}

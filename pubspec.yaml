@@ -1,0 +1,59 @@
+name: flutter_grinding_app
+description: "Taleeb Grinding (الجاروشة) worker app."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+# Same package major lines as the Taleeb Operator App lockfile
+# (flutter_riverpod 2.6, dio 5, go_router 14.8, flutter_secure_storage 9.2, …)
+# and the warehouse app's mobile_scanner 6 line, so the product family shares
+# one stack.
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  dio: ^5.9.2
+  flutter_secure_storage: ^9.2.4
+  shared_preferences: ^2.5.5
+  path_provider: ^2.1.5
+  go_router: ^14.8.1
+  logger: ^2.7.0
+  connectivity_plus: ^6.1.5
+  uuid: ^4.5.3
+  timezone: ^0.11.1
+  mobile_scanner: ^6.0.5
+  # Explicit camera-permission flow (status / request / app settings) — the
+  # Operator App's permission package and major line.
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  fake_async: ^1.3.3
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/icon.jpg"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/images/icon.jpg"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/sign.png
+    - assets/images/icon.jpg
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/cairo/Cairo-Variable.ttf

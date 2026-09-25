@@ -1,0 +1,6 @@
+{
+  "APP_ENV": "staging",
+  "API_BASE_URL": "http://hamzadamra.ddns.net:8080",
+  "ALLOW_CLEARTEXT_LAB": "true",
+  "DEVICE_KEY": "<disposable TEST device key — never the factory key>"
+}

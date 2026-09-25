@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Release: HTTPS only. The PIN, device key and session token must never
+     travel over cleartext HTTP. The Dart layer enforces the same rule
+     (AppConfig transport check + TransportGuardInterceptor). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
