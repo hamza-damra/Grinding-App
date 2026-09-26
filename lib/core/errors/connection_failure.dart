@@ -17,6 +17,8 @@ bool isConnectionFailure(AppFailure failure) {
     CancelledFailure() => false,
     AppNotConfiguredFailure() => false,
     DeviceNotAuthorizedFailure() => false,
+    BiometricDeniedFailure() => false,
+    BiometricAttemptExpiredFailure() => false,
   };
 }
 

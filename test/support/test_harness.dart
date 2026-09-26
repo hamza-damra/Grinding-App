@@ -12,6 +12,7 @@ import 'package:flutter_grinding_app/core/config/config_providers.dart';
 import 'package:flutter_grinding_app/core/storage/prefs_store.dart';
 import 'package:flutter_grinding_app/core/storage/secure_token_store.dart';
 import 'package:flutter_grinding_app/core/widgets/connectivity_banner.dart';
+import 'package:flutter_grinding_app/features/grinding_auth/presentation/state/biometric_login_controller.dart';
 import 'package:flutter_grinding_app/features/grinding_orders/data/file_pending_command_store.dart';
 import 'package:flutter_grinding_app/features/grinding_orders/domain/entities/pending_command.dart';
 import 'package:flutter_grinding_app/features/grinding_orders/domain/repositories/pending_command_store.dart';
@@ -109,6 +110,8 @@ class GrindingTestHarness {
       Duration.zero,
       Duration.zero,
     ],
+    this.biometricBackoff = const <Duration>[Duration.zero],
+    this.logger,
   }) : backend = backend ?? seededBackend(),
        tokens = tokens ?? InMemoryTokenStore(),
        prefs = prefs ?? InMemoryPrefsStore(),
@@ -119,6 +122,10 @@ class GrindingTestHarness {
   final PrefsStore prefs;
   final PendingCommandStore pending;
   final List<Duration> backoff;
+  final List<Duration> biometricBackoff;
+
+  /// Request logger for the Dio chain (tests that inspect the log).
+  final Logger? logger;
   final RecordingIdGenerator ids = RecordingIdGenerator();
 
   InMemoryPendingCommandStore get memoryPending =>
@@ -132,12 +139,14 @@ class GrindingTestHarness {
             session: ref.watch(authSessionProvider),
             signal: ref.watch(sessionInvalidationSignalProvider),
             adapter: backend,
+            logger: logger,
           ),
         ),
         secureTokenStoreProvider.overrideWithValue(tokens),
         prefsStoreProvider.overrideWith((ref) async => prefs),
         pendingCommandStoreProvider.overrideWithValue(pending),
         commandRetryBackoffProvider.overrideWithValue(backoff),
+        biometricPollBackoffProvider.overrideWithValue(biometricBackoff),
         clientRequestIdGeneratorProvider.overrideWithValue(ids.next),
         connectivityProvider.overrideWith(
           (ref) => Stream<List<ConnectivityResult>>.value(

@@ -41,6 +41,9 @@ CommandFailureClass classifyCommandFailure(AppFailure failure) {
           : CommandFailureClass.keep,
     DeviceNotAuthorizedFailure() => CommandFailureClass.keep,
     AppNotConfiguredFailure() => CommandFailureClass.keep,
+    // Login-only answers; never expected on a command.
+    BiometricDeniedFailure() => CommandFailureClass.keep,
+    BiometricAttemptExpiredFailure() => CommandFailureClass.keep,
     UnknownFailure() => CommandFailureClass.keep,
   };
 }

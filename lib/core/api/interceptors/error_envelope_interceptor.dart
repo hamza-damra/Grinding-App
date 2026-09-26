@@ -1,12 +1,16 @@
 import 'package:dio/dio.dart';
 
 import '../../errors/app_failure.dart';
+import '../../errors/biometric_denial.dart';
 import '../../errors/error_codes.dart';
 
 /// Parses the backend error envelope
 /// (`{success:false, error:{code, message, details}}`) on error responses and
 /// puts a typed [AppFailure] on `DioException.error`:
 ///
+/// * a 403 with a `BIOMETRIC_*` code → [BiometricDeniedFailure] (biometric
+///   handoff §4.2); a 410 `BIOMETRIC_LOGIN_ATTEMPT_EXPIRED` →
+///   [BiometricAttemptExpiredFailure] (§4.3);
 /// * a 401/403 without a `GRINDING_*` code (or without an envelope) →
 ///   [DeviceNotAuthorizedFailure] (contract §4.1: the device key was
 ///   rejected before business logic);
@@ -49,7 +53,18 @@ class ErrorEnvelopeInterceptor extends Interceptor {
     }
 
     final AppFailure wrapped;
-    if (ErrorCodes.isDeviceRejection(status: status, code: code)) {
+    if (status == 403 && code != null && ErrorCodes.isBiometric(code)) {
+      wrapped = AppFailure.biometricDenied(
+        BiometricDenial.fromEnvelope(
+          code: code,
+          message: message,
+          details: details,
+        ),
+      );
+    } else if (status == 410 &&
+        code == ErrorCodes.biometricLoginAttemptExpired) {
+      wrapped = const AppFailure.biometricAttemptExpired();
+    } else if (ErrorCodes.isDeviceRejection(status: status, code: code)) {
       wrapped = AppFailure.deviceNotAuthorized(status: status);
     } else if (code != null) {
       wrapped = AppFailure.api(

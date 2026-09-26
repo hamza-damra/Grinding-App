@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_grinding_app/core/errors/app_failure.dart';
 import 'package:flutter_grinding_app/core/errors/arabic_messages.dart';
+import 'package:flutter_grinding_app/core/errors/biometric_denial.dart';
 import 'package:flutter_grinding_app/core/errors/error_codes.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -171,6 +172,23 @@ void main() {
       expect(ErrorCodes.isSessionTerminal(null), isFalse);
     });
 
+    test('a BIOMETRIC_* 403 is never a device rejection', () {
+      for (final code in <String>[
+        ErrorCodes.biometricVerificationRequired,
+        ErrorCodes.biometricMappingMissing,
+        'BIOMETRIC_SOMETHING_NEW',
+      ]) {
+        expect(
+          ErrorCodes.isDeviceRejection(status: 403, code: code),
+          isFalse,
+          reason: code,
+        );
+        expect(ErrorCodes.isBiometric(code), isTrue, reason: code);
+      }
+      expect(ErrorCodes.isBiometric(ErrorCodes.workerNotAllowed), isFalse);
+      expect(ErrorCodes.isBiometric(null), isFalse);
+    });
+
     test('401/403 without a GRINDING_* code = device rejected (§4.1)', () {
       expect(ErrorCodes.isDeviceRejection(status: 401, code: null), isTrue);
       expect(ErrorCodes.isDeviceRejection(status: 403, code: ''), isTrue);
@@ -194,6 +212,102 @@ void main() {
         reason: 'the one documented non-GRINDING 401 is a wrong PIN',
       );
       expect(ErrorCodes.isDeviceRejection(status: 409, code: null), isFalse);
+    });
+  });
+
+  group('biometric login gate: verbatim handoff text (§10)', () {
+    late String section;
+
+    setUpAll(() {
+      final handoff = File(
+        'docs/FRONTEND_HANDOFF_GRINDING_APP_BIOMETRIC_LOGIN_GATE.md',
+      ).readAsStringSync().replaceAll('\r\n', '\n');
+      section = handoff.substring(
+        handoff.indexOf('## 10. Arabic UI Text'),
+        handoff.indexOf('## 11. Edge Cases'),
+      );
+    });
+
+    test('dialog chrome', () {
+      final rows = <String, String>{
+        for (final m in RegExp(
+          r'^\| ([^|`]+?) \| (.+?) \|$',
+          multiLine: true,
+        ).allMatches(section))
+          m.group(1)!.trim(): m.group(2)!.trim(),
+      };
+      expect(
+        <String, String>{
+          'dialog title': ArabicMessages.biometricTitle,
+          'waiting': ArabicMessages.biometricWaiting,
+          'waiting, secondary': ArabicMessages.biometricWaitingHint,
+          'verifying': ArabicMessages.biometricVerifying,
+          'device offline': ArabicMessages.biometricDeviceOffline,
+          'retry': ArabicMessages.biometricRetry,
+          'network': ArabicMessages.biometricNetwork,
+          'button: cancel': ArabicMessages.cancel,
+          'button: retry': ArabicMessages.retry,
+          'button: ok': ArabicMessages.biometricOk,
+        },
+        <String, String>{
+          for (final key in <String>[
+            'dialog title',
+            'waiting',
+            'waiting, secondary',
+            'verifying',
+            'device offline',
+            'retry',
+            'network',
+            'button: cancel',
+            'button: retry',
+            'button: ok',
+          ])
+            key: rows[key] ?? '<missing row>',
+        },
+      );
+    });
+
+    test('every server message row maps to its exact text', () {
+      final rows = RegExp(
+        r'^\| `(BIOMETRIC_[A-Z_]+)` \| (.+?) \|$',
+        multiLine: true,
+      ).allMatches(section).toList();
+      expect(rows, hasLength(6));
+      for (final m in rows) {
+        expect(
+          ArabicMessages.forBiometricCode(m.group(1)!),
+          m.group(2)!.trim(),
+          reason: m.group(1),
+        );
+      }
+    });
+
+    test('a refusal shows the server message verbatim; the local copy only '
+        'when it has none', () {
+      const serverText = 'نص من الخادم كما هو';
+      expect(
+        ArabicMessages.forFailure(
+          const AppFailure.biometricDenied(
+            BiometricDenial(
+              code: ErrorCodes.biometricVerificationRequired,
+              message: serverText,
+            ),
+          ),
+        ),
+        serverText,
+      );
+      expect(
+        ArabicMessages.forFailure(
+          const AppFailure.biometricDenied(
+            BiometricDenial(code: ErrorCodes.biometricMappingMissing),
+          ),
+        ),
+        ArabicMessages.biometricMappingMissing,
+      );
+      expect(
+        ArabicMessages.forFailure(const AppFailure.biometricAttemptExpired()),
+        ArabicMessages.biometricAttemptExpired,
+      );
     });
   });
 

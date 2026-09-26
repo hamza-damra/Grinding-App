@@ -9,7 +9,9 @@ import '../api_paths.dart';
 /// * the PIN (request body field `pin`);
 /// * the shared device key (`X-Device-Key` header);
 /// * the session token (`X-Session-Token` header and the `sessionToken`
-///   field of the login response).
+///   field of the login response);
+/// * the biometric attempt token (`X-Biometric-Attempt-Token` header and the
+///   `attemptToken` field of a `BIOMETRIC_*` login refusal).
 ///
 /// The default [Logger] uses [DevelopmentFilter], which only prints in debug
 /// builds (asserts enabled): profile and release builds log nothing.
@@ -28,10 +30,12 @@ class RedactingLoggingInterceptor extends Interceptor {
   static const Set<String> _redactedHeaders = <String>{
     ApiHeaders.deviceKey,
     ApiHeaders.sessionToken,
+    ApiHeaders.biometricAttemptToken,
   };
   static const Set<String> _redactedBodyFields = <String>{
     'pin',
     'sessionToken',
+    'attemptToken',
   };
 
   @override

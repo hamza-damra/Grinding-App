@@ -1,3 +1,5 @@
+import 'biometric_denial.dart';
+
 /// Typed failure family surfaced by repositories and controllers. Mirrors the
 /// Operator App's `AppFailure` (hand-written sealed classes instead of
 /// freezed — see README "Code generation").
@@ -35,6 +37,18 @@ sealed class AppFailure implements Exception {
 
   /// No session token is held locally for a session-scoped call.
   const factory AppFailure.sessionExpired() = SessionExpiredFailure;
+
+  /// Biometric handoff §4.2: a `BIOMETRIC_*` 403 on login — the employee
+  /// must scan at a factory fingerprint terminal. Not a wrong PIN and not a
+  /// device rejection; nothing local is cleared.
+  const factory AppFailure.biometricDenied(BiometricDenial denial) =
+      BiometricDeniedFailure;
+
+  /// Biometric handoff §4.3: 410 on the attempt-status poll — the attempt is
+  /// unknown or expired (indistinguishable by design). Only a re-submitted
+  /// login starts a new one.
+  const factory AppFailure.biometricAttemptExpired() =
+      BiometricAttemptExpiredFailure;
 
   const factory AppFailure.unknown({Object? cause}) = UnknownFailure;
 }
@@ -160,6 +174,38 @@ final class SessionExpiredFailure extends AppFailure {
 
   @override
   String toString() => 'AppFailure.sessionExpired()';
+}
+
+final class BiometricDeniedFailure extends AppFailure {
+  const BiometricDeniedFailure(this.denial);
+
+  final BiometricDenial denial;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BiometricDeniedFailure && other.denial == denial;
+
+  @override
+  int get hashCode => Object.hash(BiometricDeniedFailure, denial);
+
+  /// Never the attempt token or the message.
+  @override
+  String toString() =>
+      'AppFailure.biometricDenied(code: ${denial.code}, '
+      'attemptAvailable: ${denial.attemptAvailable})';
+}
+
+final class BiometricAttemptExpiredFailure extends AppFailure {
+  const BiometricAttemptExpiredFailure();
+
+  @override
+  bool operator ==(Object other) => other is BiometricAttemptExpiredFailure;
+
+  @override
+  int get hashCode => (BiometricAttemptExpiredFailure).hashCode;
+
+  @override
+  String toString() => 'AppFailure.biometricAttemptExpired()';
 }
 
 final class UnknownFailure extends AppFailure {

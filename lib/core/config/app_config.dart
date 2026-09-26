@@ -90,6 +90,19 @@ class AppConfig {
     Duration(seconds: 4),
   ];
 
+  /// Biometric handoff §4.3: the server holds an attempt-status long-poll
+  /// for up to 25 s, so its receive timeout must be at least 35 s.
+  static const Duration biometricStatusReceiveTimeout = Duration(seconds: 40);
+
+  /// Biometric handoff §8: pause between failed attempt-status polls (1 s,
+  /// 2 s, 4 s, then at most 10 s). Polling goes on until the server's 410.
+  static const List<Duration> biometricPollBackoff = <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 10),
+  ];
+
   /// Grace period `AsyncStatusView` waits — performing one silent auto-retry —
   /// before escalating a settled technical failure to the blocking dialog.
   static const Duration connectionErrorGrace = Duration(milliseconds: 600);

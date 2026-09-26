@@ -33,6 +33,32 @@ class ErrorCodes {
   static const String orderNotFound = 'GRINDING_ORDER_NOT_FOUND';
   static const String idempotencyKeyReused = 'GRINDING_IDEMPOTENCY_KEY_REUSED';
 
+  // Biometric login gate
+  // (`docs/FRONTEND_HANDOFF_GRINDING_APP_BIOMETRIC_LOGIN_GATE.md` §4.4).
+  // 403 on `POST /auth/pin`; the first three may carry an attempt token.
+  static const String biometricVerificationRequired =
+      'BIOMETRIC_VERIFICATION_REQUIRED';
+  static const String biometricVerificationExpired =
+      'BIOMETRIC_VERIFICATION_EXPIRED';
+  static const String biometricDeviceUnavailable =
+      'BIOMETRIC_DEVICE_UNAVAILABLE';
+
+  /// Only a SYSTEM_ADMIN can fix these: never polled, never retried.
+  static const String biometricMappingMissing = 'BIOMETRIC_MAPPING_MISSING';
+  static const String biometricMappingDisabled = 'BIOMETRIC_MAPPING_DISABLED';
+
+  /// 410 on the attempt-status endpoint: unknown or expired attempt.
+  static const String biometricLoginAttemptExpired =
+      'BIOMETRIC_LOGIN_ATTEMPT_EXPIRED';
+
+  /// A biometric-gate code. Branch on this, never on the HTTP status alone:
+  /// other 403s keep their own handling.
+  static bool isBiometric(String? code) =>
+      code != null && code.startsWith('BIOMETRIC_');
+
+  static bool isBiometricMapping(String? code) =>
+      code == biometricMappingMissing || code == biometricMappingDisabled;
+
   /// Codes that end the worker's session: clear the token and go to PIN.
   static const Set<String> sessionTerminalCodes = <String>{
     sessionRequired,
@@ -46,11 +72,12 @@ class ErrorCodes {
 
   /// Contract §4.1: a 401/403 whose code is not a `GRINDING_*` code (or that
   /// has no envelope at all) means the device itself was rejected.
-  /// `OPERATOR_PIN_INVALID` is the one documented non-`GRINDING_*` 401.
+  /// `OPERATOR_PIN_INVALID` is the one documented non-`GRINDING_*` 401; the
+  /// `BIOMETRIC_*` login refusals are not device rejections either.
   static bool isDeviceRejection({required int? status, required String? code}) {
     if (status != 401 && status != 403) return false;
     if (code == null || code.isEmpty) return true;
-    if (code == operatorPinInvalid) return false;
+    if (code == operatorPinInvalid || isBiometric(code)) return false;
     return !code.startsWith('GRINDING_');
   }
 }

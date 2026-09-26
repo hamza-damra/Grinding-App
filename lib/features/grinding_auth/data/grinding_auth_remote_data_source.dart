@@ -3,8 +3,11 @@ import 'package:dio/dio.dart';
 import '../../../core/api/api_envelope.dart';
 import '../../../core/api/api_paths.dart';
 import '../../../core/api/json_read.dart';
+import '../../../core/config/app_config.dart';
+import '../domain/entities/biometric_attempt.dart';
 import '../domain/entities/grinding_worker.dart';
 import 'dtos/auth_dtos.dart';
+import 'dtos/biometric_dtos.dart';
 
 /// Thin Dio wrapper for the session endpoints.
 class GrindingAuthRemoteDataSource {
@@ -47,5 +50,34 @@ class GrindingAuthRemoteDataSource {
       ),
     );
     return ApiEnvelope.unwrap<bool>(response, LogoutResponseDto.endedFrom);
+  }
+
+  /// Biometric attempt-status long-poll. Carries ONLY
+  /// `X-Biometric-Attempt-Token`: no device key, no session token, and the
+  /// token never goes into the URL. Not auto-retried — the biometric
+  /// controller owns the backoff.
+  Future<BiometricAttemptStatusResponse> getBiometricAttemptStatus({
+    required String? statusPath,
+    required String attemptToken,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _dio.get<dynamic>(
+      ApiPaths.biometricStatus(statusPath),
+      cancelToken: cancelToken,
+      options: Options(
+        headers: <String, dynamic>{
+          ApiHeaders.biometricAttemptToken: attemptToken,
+        },
+        receiveTimeout: AppConfig.biometricStatusReceiveTimeout,
+        extra: const <String, dynamic>{
+          DioRequestExtras.omitDeviceKey: true,
+          DioRequestExtras.disableAutoRetry: true,
+        },
+      ),
+    );
+    return ApiEnvelope.unwrap<BiometricAttemptStatusResponse>(
+      response,
+      BiometricAttemptStatusDto.fromJson,
+    );
   }
 }

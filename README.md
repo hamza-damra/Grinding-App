@@ -6,6 +6,8 @@ PIN login → scan or type the 12-digit roll / pallet number → `/check` →
 
 - **Business / API contract:** [`docs/GRINDING_APP_BACKEND_CONTRACT.md`](docs/GRINDING_APP_BACKEND_CONTRACT.md)
   (endpoints under `/api/v1/grinding-app`, envelope, session codes, idempotency §4.4, Arabic copy §10).
+- **Biometric login gate:** [`docs/FRONTEND_HANDOFF_GRINDING_APP_BIOMETRIC_LOGIN_GATE.md`](docs/FRONTEND_HANDOFF_GRINDING_APP_BIOMETRIC_LOGIN_GATE.md)
+  (fingerprint check before a new login; see [below](#biometric-login-gate)).
 - **Engineering / UX reference:** the Taleeb Operator App (same stack, theme, widgets, Riverpod/Dio patterns).
 
 Toolchain: Flutter 3.44 / Dart 3.12. Android only.
@@ -72,10 +74,11 @@ lib/
 ```
 
 - Riverpod 2 with manual providers; Dio chain: transport guard → redacting logger (debug only) → read-only
-  retry (GET + `/check`) → device key → session token (+ auth generation) → error envelope → session
-  invalidation signal.
+  retry (GET + `/check`) → device key (all calls but the biometric attempt status) → session token
+  (+ auth generation) → error envelope → session invalidation signal.
 - `ArabicMessages` is the single source of worker-facing text. Backend `error.message` (English) is never
-  shown; unknown codes show «تعذر تنفيذ العملية. حاول مرة أخرى.».
+  shown; unknown codes show «تعذر تنفيذ العملية. حاول مرة أخرى.». The one exception is a `BIOMETRIC_*`
+  login refusal, whose message is Arabic by contract and shown verbatim.
 - Hand-written sealed classes and DTOs (no code generation).
 
 ### Shared roll/pallet numbers (contract §4.2)
@@ -98,6 +101,32 @@ lib/
 - The controller is started / stopped by the screen through one serial queue; leaving the screen while
   the camera is still starting stops it only after the start returns (otherwise mobile_scanner 6 leaves the
   camera bound and every later scanner fails). Manual entry is always available.
+
+### Biometric login gate
+
+When the backend switch is on and the worker has no recent punch on a factory fingerprint terminal,
+`POST /auth/pin` answers 403 `BIOMETRIC_*`. The PIN screen then opens the fingerprint dialog
+(`BiometricLoginDialog`, driven by `BiometricLoginController`) instead of an inline error.
+
+- **Recognised by `error.code` only.** A 403 whose code starts with `BIOMETRIC_` becomes
+  `BiometricDeniedFailure`; every other 403 keeps its old handling (`GRINDING_WORKER_NOT_ALLOWED`,
+  device rejection). It is not a wrong PIN and clears nothing.
+- **Waiting.** With an attempt token the dialog long-polls `GET /api/v1/auth/biometric/login-attempts/status`
+  (`details.statusPath`, accepted only as a plain path on the login host) with ONLY
+  `X-Biometric-Attempt-Token` — no device key, no session token — and a 40 s receive timeout. `PENDING` /
+  `DEVICE_UNAVAILABLE` poll again at once; a failed poll backs off 1 s / 2 s / 4 s / 10 s until the server's
+  410. App resume polls immediately. Unknown status values count as `PENDING`.
+- **Completing.** `VERIFIED` / `ENFORCEMENT_SUSPENDED` / `NOT_REQUIRED` re-submit the same `{pin}` exactly
+  once per status answer through `GrindingAuthController.login`. A 2xx closes the dialog like a normal
+  login; another `BIOMETRIC_*` 403 replaces the attempt (new token); any other refusal closes the dialog
+  and shows its error on the PIN screen.
+- **Other states.** No token, a 410 or a lost re-submit without a token → «إعادة المحاولة» (re-submits
+  without re-typing). `MAPPING_*` → the server message and «حسنًا», nothing polled or retried.
+- **No bypass.** The dialog ignores barrier taps and the back button; its only exits are «إلغاء»,
+  «حسنًا» and the automatic close. Extra «دخول» taps are ignored while it is open.
+- **Secrets.** The PIN and the attempt token live only in the controller while the dialog is open and are
+  dropped on close / cancel. The token is redacted from logs (header and `attemptToken` field), never
+  persisted, shown or put in a URL.
 
 ### START / COMPLETE idempotency (contract §4.4)
 
@@ -132,7 +161,9 @@ pwsh tool/process_kill_test.ps1 -Device <device>    # real Android process-kill 
 ```
 
 - `test/support/fake_grinding_backend.dart` is an in-process implementation of the contract (state machine,
-  idempotency table, session codes, fault injection) plugged in behind the real Dio chain.
+  idempotency table, session codes, fault injection) plugged in behind the real Dio chain. It also models
+  the biometric gate (off by default, like the backend): refusals with attempt tokens, scans, terminal /
+  agent / mapping changes, and a real long-poll that is held until something changes.
 - `integration_test/app_flows_test.dart` runs on a device with the real secure storage, SharedPreferences and
   pending-command files (scenarios: happy path, lost response → `replayed:true`, a number shared by a roll and
   a pallet (auto-resolved / worker selection), pending approval,
@@ -166,3 +197,7 @@ flutter test integration_test/live_smoke_test.dart -d <device> --dart-define-fro
 - Release signing is not configured (`build.gradle.kts` signs release with the debug key) — add the Taleeb
   keystore via a gitignored `key.properties`.
 - Launcher icon: `dart run flutter_launcher_icons` (config in `pubspec.yaml`, source `assets/images/icon.jpg`).
+- **Biometric login gate:** record the first release build that contains the fingerprint dialog (its
+  `version` from `pubspec.yaml`) in the release notes. That build is the minimum app version: the
+  SYSTEM_ADMIN must not switch the backend check on for `GRINDING_APP` before it is installed on every floor
+  device (biometric handoff §13). Then run the handoff's §12 manual QA against staging with the switch on.

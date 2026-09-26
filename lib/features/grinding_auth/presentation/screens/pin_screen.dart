@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/errors/app_failure.dart';
 import '../../../../core/errors/arabic_messages.dart';
+import '../../../../core/errors/biometric_denial.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/dimensions.dart';
@@ -10,9 +12,12 @@ import '../../../../core/theme/text_theme.dart';
 import '../../../../core/widgets/connectivity_banner.dart';
 import '../../../../core/widgets/pin_input.dart';
 import '../../../../core/widgets/primary_button.dart';
+import '../../data/grinding_auth_repository_impl.dart';
 import '../../domain/value_objects/pin_rule.dart';
+import '../state/biometric_login_controller.dart';
 import '../state/grinding_auth_controller.dart';
 import '../state/grinding_auth_state.dart';
+import '../widgets/biometric_login_dialog.dart';
 
 /// PIN login — Operator App `PinScreen` layout (gradient green header with an
 /// elliptical bottom, round `sign.png` logo, white card with the PIN field,
@@ -26,6 +31,9 @@ class PinScreen extends ConsumerStatefulWidget {
 
 class _PinScreenState extends ConsumerState<PinScreen> {
   final _controller = TextEditingController();
+
+  /// The fingerprint dialog is open: one attempt at a time.
+  bool _biometricGateOpen = false;
 
   @override
   void initState() {
@@ -45,13 +53,43 @@ class _PinScreenState extends ConsumerState<PinScreen> {
   void _onChanged() => setState(() {});
 
   Future<void> _submit() async {
-    final pin = _controller.text;
-    if (PinRule.normalize(pin) == null) return;
+    final pin = PinRule.normalize(_controller.text);
+    if (pin == null) return;
+    if (_biometricGateOpen) return;
     if (ref.read(grindingAuthControllerProvider).isLoading) return;
-    await ref.read(grindingAuthControllerProvider.notifier).login(pin);
+    final auth = ref.read(grindingAuthControllerProvider.notifier);
+    final failure = await auth.login(pin);
     if (!mounted) return;
     // The PIN never lingers in the field beyond a single attempt.
     _controller.clear();
+    if (failure is BiometricDeniedFailure) {
+      await _openBiometricGate(pin, failure.denial, auth.login);
+    }
+  }
+
+  /// Biometric handoff §9: the fingerprint dialog waits for a scan and
+  /// re-submits the same PIN once — the worker never re-types it. The PIN
+  /// is handed to the dialog's controller in memory only and dropped with it.
+  Future<void> _openBiometricGate(
+    String pin,
+    BiometricDenial denial,
+    Future<AppFailure?> Function(String pin) resubmit,
+  ) async {
+    _biometricGateOpen = true;
+    try {
+      await showBiometricLoginDialog(
+        context,
+        controller: BiometricLoginController(
+          pin: pin,
+          denial: denial,
+          repository: ref.read(grindingAuthRepositoryProvider),
+          resubmit: resubmit,
+          backoff: ref.read(biometricPollBackoffProvider),
+        ),
+      );
+    } finally {
+      _biometricGateOpen = false;
+    }
   }
 
   @override

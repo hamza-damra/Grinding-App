@@ -5,7 +5,9 @@ import 'error_codes.dart';
 /// "contract" is copied verbatim from `docs/GRINDING_APP_BACKEND_CONTRACT.md`
 /// §5/§9/§10 (a unit test compares them against the contract file byte for
 /// byte). Backend `error.message` is English and technical and is NEVER shown:
-/// an unknown code falls back to [genericError], not to the backend text.
+/// an unknown code falls back to [genericError], not to the backend text. The
+/// one exception is a `BIOMETRIC_*` login refusal, whose message is Arabic by
+/// contract and shown verbatim (biometric handoff §5).
 class ArabicMessages {
   ArabicMessages._();
 
@@ -153,6 +155,56 @@ class ArabicMessages {
   static const String noCameraOnDevice = 'لا توجد كاميرا متاحة على هذا الجهاز.';
   static const String scanHint = 'وجّه الكاميرا نحو ملصق الرول أو الطبلية';
 
+  // ── Biometric login gate ───────────────────────────────────────────────
+  // `docs/FRONTEND_HANDOFF_GRINDING_APP_BIOMETRIC_LOGIN_GATE.md` §10, verbatim
+  // (a unit test compares them against the handoff byte for byte). The
+  // «إلغاء» / «إعادة المحاولة» buttons reuse [cancel] / [retry].
+
+  /// Dialog chrome and the states the server does not word.
+  static const String biometricTitle = 'التحقق بالبصمة';
+  static const String biometricWaiting = 'مرّر إصبعك على جهاز البصمة';
+  static const String biometricWaitingHint =
+      'سيكتمل تسجيل الدخول تلقائيًا بعد التحقق';
+  static const String biometricVerifying = 'جارٍ تسجيل الدخول…';
+  static const String biometricDeviceOffline =
+      'جهاز البصمة غير متصل حاليًا. انتظر قليلًا أو أبلغ المسؤول.';
+  static const String biometricRetry =
+      'انتهت مهلة المحاولة. مرّر البصمة ثم أعد المحاولة.';
+  static const String biometricNetwork =
+      'تعذّر الاتصال بالخادم، جارٍ إعادة المحاولة…';
+  static const String biometricOk = 'حسنًا';
+
+  /// The server's `error.message` per code. The server's own text is always
+  /// shown when present; these are the fallback when a response carries none
+  /// (and the wording for `MAPPING_*` answers of the status endpoint, which
+  /// carry no message).
+  static const String biometricVerificationRequired =
+      'يرجى تمرير البصمة على جهاز البصمة ثم إعادة المحاولة.';
+  static const String biometricVerificationExpired =
+      'انتهت صلاحية التحقق بالبصمة. يرجى تمرير البصمة مرة أخرى ثم إعادة المحاولة.';
+  static const String biometricDeviceUnavailable =
+      'جهاز البصمة غير متصل حاليًا. يرجى المحاولة بعد قليل أو إبلاغ المسؤول.';
+  static const String biometricMappingMissing =
+      'لم يتم ربط بصمتك بحسابك بعد. يرجى مراجعة مسؤول النظام.';
+  static const String biometricMappingDisabled =
+      'ربط البصمة الخاص بحسابك غير مفعّل. يرجى مراجعة مسؤول النظام.';
+  static const String biometricAttemptExpired =
+      'انتهت مهلة محاولة الدخول. يرجى تسجيل الدخول مرة أخرى.';
+
+  /// Arabic for a biometric-gate [code]; unknown `BIOMETRIC_*` codes get the
+  /// generic «scan, then retry» text.
+  static String forBiometricCode(String code) =>
+      _biometricCodeToMessage[code] ?? biometricVerificationRequired;
+
+  static const Map<String, String> _biometricCodeToMessage = <String, String>{
+    ErrorCodes.biometricVerificationRequired: biometricVerificationRequired,
+    ErrorCodes.biometricVerificationExpired: biometricVerificationExpired,
+    ErrorCodes.biometricDeviceUnavailable: biometricDeviceUnavailable,
+    ErrorCodes.biometricMappingMissing: biometricMappingMissing,
+    ErrorCodes.biometricMappingDisabled: biometricMappingDisabled,
+    ErrorCodes.biometricLoginAttemptExpired: biometricAttemptExpired,
+  };
+
   /// Maps any [AppFailure] to worker-facing Arabic copy.
   static String forFailure(AppFailure failure) {
     return switch (failure) {
@@ -164,6 +216,10 @@ class ArabicMessages {
       AppNotConfiguredFailure() => appNotConfigured,
       DeviceNotAuthorizedFailure() => deviceNotAuthorized,
       SessionExpiredFailure() => sessionRequired,
+      // Arabic by contract: the server's text is shown verbatim.
+      BiometricDeniedFailure(:final denial) =>
+        denial.message ?? forBiometricCode(denial.code),
+      BiometricAttemptExpiredFailure() => biometricAttemptExpired,
       UnknownFailure() => genericError,
     };
   }

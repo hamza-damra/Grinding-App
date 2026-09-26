@@ -86,11 +86,17 @@ class GrindingAuthController extends AsyncNotifier<GrindingAuthState> {
 
   /// Submits the PIN. The value is consumed once and released — never
   /// assigned to a field, logged, or echoed back to the UI.
-  Future<void> login(String rawPin) async {
+  ///
+  /// Returns `null` once the worker is signed in, else the failure that
+  /// refused the login (also kept as `lastError`). An ignored call (malformed
+  /// PIN, a login or logout already running) returns
+  /// [AppFailure.cancelled]. A `BiometricDeniedFailure` means the fingerprint
+  /// dialog must take over (biometric handoff §9); it clears nothing.
+  Future<AppFailure?> login(String rawPin) async {
     final pin = PinRule.normalize(rawPin);
-    if (pin == null) return;
-    if (_loggingIn || _clearing) return;
-    if (state.valueOrNull is GrindingAuthAuthenticated) return;
+    if (pin == null) return const AppFailure.cancelled();
+    if (_loggingIn || _clearing) return const AppFailure.cancelled();
+    if (state.valueOrNull is GrindingAuthAuthenticated) return null;
     _loggingIn = true;
     state = const AsyncLoading<GrindingAuthState>().copyWithPrevious(state);
     try {
@@ -107,12 +113,11 @@ class GrindingAuthController extends AsyncNotifier<GrindingAuthState> {
           expiresAt: result.expiresAt,
         ),
       );
+      return null;
     } catch (e, st) {
-      state = AsyncData(
-        GrindingAuthState.unauthenticated(
-          lastError: ErrorMapper.fromException(e, st),
-        ),
-      );
+      final failure = ErrorMapper.fromException(e, st);
+      state = AsyncData(GrindingAuthState.unauthenticated(lastError: failure));
+      return failure;
     } finally {
       _loggingIn = false;
     }

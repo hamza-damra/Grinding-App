@@ -16,7 +16,12 @@ import 'package:dio/dio.dart';
 /// * queues;
 /// * START / COMPLETE with the idempotency table (§4.4): the same
 ///   `clientRequestId` for the same order + command → `replayed:true`; for a
-///   different order / command → `GRINDING_IDEMPOTENCY_KEY_REUSED`.
+///   different order / command → `GRINDING_IDEMPOTENCY_KEY_REUSED`;
+/// * the biometric login gate (biometric handoff §4): `BIOMETRIC_*` 403s on
+///   login with attempt tokens, and the attempt-status long-poll (held while
+///   nothing changes, answered as soon as a scan / admin / terminal change
+///   arrives, 410 once the attempt expired). OFF by default, like the real
+///   backend, so every other test sees the login unchanged.
 ///
 /// Every request is recorded ([requests]); [faults] inject transport-level
 /// failures (lost response after commit, timeouts, 5xx, captive portal,
@@ -55,6 +60,26 @@ class FakeGrindingBackend implements HttpClientAdapter {
 
   int _tokenSeq = 0;
   int _sessionSeq = 300;
+
+  // ── Biometric login gate ──────────────────────────────────────────────
+
+  static const String biometricStatusPath =
+      '/api/v1/auth/biometric/login-attempts/status';
+
+  bool _biometricEnforced = false;
+  bool _biometricAgentOnline = true;
+  bool _biometricTerminalOnline = true;
+
+  /// `false` → refusals carry no attempt (`attemptAvailable:false`).
+  bool biometricAttemptsAvailable = true;
+
+  final Map<String, FakeBiometricAttempt> biometricAttempts =
+      <String, FakeBiometricAttempt>{};
+
+  /// Held long-polls the client aborted (cancel / close / resume).
+  int biometricPollsAborted = 0;
+  int _attemptSeq = 0;
+  Completer<void> _biometricChange = Completer<void>();
 
   // ── Seeding ───────────────────────────────────────────────────────────
 
@@ -159,6 +184,73 @@ class FakeGrindingBackend implements HttpClientAdapter {
 
   void revokeWorker(int operatorId) => workerById(operatorId)?.allowed = false;
 
+  /// The PIN was changed elsewhere: the old one no longer logs in.
+  void changePin(int operatorId, String newPin) {
+    final worker = workerById(operatorId)!;
+    _workersByPin
+      ..remove(worker.pin)
+      ..[newPin] = worker;
+  }
+
+  // Biometric gate — each change wakes the held status polls, as the real
+  // long-poll answers "as soon as something changes".
+
+  void setBiometricEnforced(bool enforced) {
+    _biometricEnforced = enforced;
+    _notifyBiometric();
+  }
+
+  /// The factory agent went offline → the check is suspended factory-wide.
+  void setBiometricAgentOnline(bool online) {
+    _biometricAgentOnline = online;
+    _notifyBiometric();
+  }
+
+  /// The terminal went offline while the agent is up.
+  void setBiometricTerminalOnline(bool online) {
+    _biometricTerminalOnline = online;
+    _notifyBiometric();
+  }
+
+  void scanFingerprint(int operatorId) =>
+      _setPunch(operatorId, FakePunch.fresh);
+
+  /// The last punch is older than the validity window.
+  void ageFingerprint(int operatorId) =>
+      _setPunch(operatorId, FakePunch.expired);
+
+  void setBiometricMapping(int operatorId, FakeBiometricMapping mapping) {
+    workerById(operatorId)!.mapping = mapping;
+    _notifyBiometric();
+  }
+
+  void exemptFromBiometric(int operatorId) {
+    workerById(operatorId)!.biometricExempt = true;
+    _notifyBiometric();
+  }
+
+  /// Every open attempt is past its time: status answers 410.
+  void expireBiometricAttempts() {
+    for (final attempt in biometricAttempts.values) {
+      attempt.expired = true;
+    }
+    _notifyBiometric();
+  }
+
+  List<RecordedRequest> get biometricStatusRequests =>
+      requestsTo(biometricStatusPath);
+
+  void _setPunch(int operatorId, FakePunch punch) {
+    workerById(operatorId)!.punch = punch;
+    _notifyBiometric();
+  }
+
+  void _notifyBiometric() {
+    final change = _biometricChange;
+    _biometricChange = Completer<void>();
+    change.complete();
+  }
+
   // ── Inspection ────────────────────────────────────────────────────────
 
   List<RecordedRequest> requestsTo(String pathSuffix, {String? method}) =>
@@ -202,6 +294,7 @@ class FakeGrindingBackend implements HttpClientAdapter {
           ? Map<String, dynamic>.from(options.data as Map)
           : null,
       contentType: options.contentType,
+      receiveTimeout: options.receiveTimeout,
     );
     requests.add(request);
     await onRequest?.call(request);
@@ -242,6 +335,10 @@ class FakeGrindingBackend implements HttpClientAdapter {
         case FaultKind.custom:
           return fault.response!;
       }
+    }
+    // Shared auth endpoint, outside the app base; needs no device key.
+    if (request.path == biometricStatusPath && request.method == 'GET') {
+      return _biometricStatus(request, options, cancelFuture);
     }
     return _handle(request);
   }
@@ -320,6 +417,9 @@ class FakeGrindingBackend implements HttpClientAdapter {
     final worker = _workersByPin[pin];
     if (worker == null) return _error(401, 'OPERATOR_PIN_INVALID');
     if (!worker.allowed) return _error(403, 'GRINDING_WORKER_NOT_ALLOWED');
+    // The gate runs after the PIN and the permission, before the session.
+    final gate = _biometricGate(worker);
+    if (gate != null) return gate;
     // A new login ends the worker's previous session.
     for (final session in sessions.values) {
       if (session.operatorId == worker.operatorId) session.ended = true;
@@ -564,6 +664,131 @@ class FakeGrindingBackend implements HttpClientAdapter {
     });
   }
 
+  // ── Biometric gate ────────────────────────────────────────────────────
+
+  static const Map<String, String> biometricMessages = <String, String>{
+    'BIOMETRIC_VERIFICATION_REQUIRED':
+        'يرجى تمرير البصمة على جهاز البصمة ثم إعادة المحاولة.',
+    'BIOMETRIC_VERIFICATION_EXPIRED':
+        'انتهت صلاحية التحقق بالبصمة. يرجى تمرير البصمة مرة أخرى ثم إعادة المحاولة.',
+    'BIOMETRIC_DEVICE_UNAVAILABLE':
+        'جهاز البصمة غير متصل حاليًا. يرجى المحاولة بعد قليل أو إبلاغ المسؤول.',
+    'BIOMETRIC_MAPPING_MISSING':
+        'لم يتم ربط بصمتك بحسابك بعد. يرجى مراجعة مسؤول النظام.',
+    'BIOMETRIC_MAPPING_DISABLED':
+        'ربط البصمة الخاص بحسابك غير مفعّل. يرجى مراجعة مسؤول النظام.',
+    'BIOMETRIC_LOGIN_ATTEMPT_EXPIRED':
+        'انتهت مهلة محاولة الدخول. يرجى تسجيل الدخول مرة أخرى.',
+  };
+
+  ResponseBody? _biometricGate(FakeWorker worker) {
+    if (!_biometricEnforced ||
+        !_biometricAgentOnline ||
+        worker.biometricExempt) {
+      return null;
+    }
+    final mappingCode = switch (worker.mapping) {
+      FakeBiometricMapping.linked => null,
+      FakeBiometricMapping.missing => 'BIOMETRIC_MAPPING_MISSING',
+      FakeBiometricMapping.disabled => 'BIOMETRIC_MAPPING_DISABLED',
+    };
+    if (mappingCode != null) return biometricDenial(mappingCode);
+    if (worker.punch == FakePunch.fresh) return null;
+    final code = !_biometricTerminalOnline
+        ? 'BIOMETRIC_DEVICE_UNAVAILABLE'
+        : worker.punch == FakePunch.expired
+        ? 'BIOMETRIC_VERIFICATION_EXPIRED'
+        : 'BIOMETRIC_VERIFICATION_REQUIRED';
+    if (!biometricAttemptsAvailable) return biometricDenial(code);
+    final token = 'bat-${++_attemptSeq}-q3Jx8d6cYt0H1m0yF3kZ0wS9gQx8B7nV';
+    biometricAttempts[token] = FakeBiometricAttempt(token, worker.operatorId);
+    return biometricDenial(code, attemptToken: token);
+  }
+
+  /// A `BIOMETRIC_*` 403 exactly as the handoff shows it (§4.2).
+  static ResponseBody biometricDenial(
+    String code, {
+    String? attemptToken,
+    String? statusPath = biometricStatusPath,
+  }) => _error(
+    403,
+    code,
+    message: biometricMessages[code],
+    details: <String, dynamic>{
+      'validitySeconds': 300,
+      if (attemptToken != null) ...<String, dynamic>{
+        'attemptToken': attemptToken,
+        'attemptExpiresAt': '2026-09-24T08:15:00.000Z',
+        'statusPath': ?statusPath,
+      },
+      'attemptAvailable': attemptToken != null,
+    },
+  );
+
+  /// A status answer for [FaultKind.custom].
+  static ResponseBody biometricStatus(String status) => _ok(<String, dynamic>{
+    'status': status,
+    'attemptExpiresAt': '2026-09-24T08:15:00.000Z',
+  });
+
+  String _attemptStatus(FakeBiometricAttempt attempt) {
+    final worker = workerById(attempt.operatorId)!;
+    if (!_biometricEnforced || worker.biometricExempt) return 'NOT_REQUIRED';
+    if (!_biometricAgentOnline) return 'ENFORCEMENT_SUSPENDED';
+    switch (worker.mapping) {
+      case FakeBiometricMapping.missing:
+        return 'MAPPING_MISSING';
+      case FakeBiometricMapping.disabled:
+        return 'MAPPING_DISABLED';
+      case FakeBiometricMapping.linked:
+        break;
+    }
+    if (worker.punch == FakePunch.fresh) return 'VERIFIED';
+    if (!_biometricTerminalOnline) return 'DEVICE_UNAVAILABLE';
+    return 'PENDING';
+  }
+
+  /// Long-poll: an unchanged PENDING / DEVICE_UNAVAILABLE is held until
+  /// something changes or the client cancels.
+  Future<ResponseBody> _biometricStatus(
+    RecordedRequest r,
+    RequestOptions options,
+    Future<void>? cancelFuture,
+  ) async {
+    final token = r.headers['X-Biometric-Attempt-Token'];
+    var cancelled = false;
+    unawaited(cancelFuture?.then((_) => cancelled = true));
+    while (true) {
+      final attempt = biometricAttempts[token];
+      if (attempt == null || attempt.expired) {
+        return _error(
+          410,
+          'BIOMETRIC_LOGIN_ATTEMPT_EXPIRED',
+          message: biometricMessages['BIOMETRIC_LOGIN_ATTEMPT_EXPIRED'],
+        );
+      }
+      final status = _attemptStatus(attempt);
+      final unchanged =
+          (status == 'PENDING' || status == 'DEVICE_UNAVAILABLE') &&
+          status == attempt.lastAnswer;
+      if (!unchanged) {
+        attempt.lastAnswer = status;
+        return biometricStatus(status);
+      }
+      await Future.any<void>(<Future<void>>[
+        _biometricChange.future,
+        ?cancelFuture,
+      ]);
+      if (cancelled) {
+        biometricPollsAborted++;
+        throw DioException.requestCancelled(
+          requestOptions: options,
+          reason: 'fake: long-poll cancelled',
+        );
+      }
+    }
+  }
+
   // ── Responses ─────────────────────────────────────────────────────────
 
   static ResponseBody _ok(Map<String, dynamic> data) =>
@@ -662,6 +887,7 @@ class RecordedRequest {
     required this.headers,
     required this.body,
     this.contentType,
+    this.receiveTimeout,
   });
 
   final String method;
@@ -669,6 +895,7 @@ class RecordedRequest {
   final Map<String, dynamic> headers;
   final Map<String, dynamic>? body;
   final String? contentType;
+  final Duration? receiveTimeout;
 
   String get path => uri.path;
 
@@ -676,10 +903,25 @@ class RecordedRequest {
 
   String? get deviceKey => headers['X-Device-Key'] as String?;
 
+  String? get attemptToken => headers['X-Biometric-Attempt-Token'] as String?;
+
   String? get clientRequestId => body?['clientRequestId'] as String?;
 
   @override
   String toString() => 'RecordedRequest($method $path)';
+}
+
+enum FakePunch { none, fresh, expired }
+
+enum FakeBiometricMapping { linked, missing, disabled }
+
+class FakeBiometricAttempt {
+  FakeBiometricAttempt(this.token, this.operatorId);
+
+  final String token;
+  final int operatorId;
+  bool expired = false;
+  String? lastAnswer;
 }
 
 class FakeWorker {
@@ -694,6 +936,9 @@ class FakeWorker {
   final int operatorId;
   final String name;
   bool allowed;
+  FakePunch punch = FakePunch.none;
+  FakeBiometricMapping mapping = FakeBiometricMapping.linked;
+  bool biometricExempt = false;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'operatorId': operatorId,
