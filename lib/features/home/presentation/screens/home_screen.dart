@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes.dart';
 import '../../../../core/errors/arabic_messages.dart';
-import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/dimensions.dart';
 import '../../../../core/theme/text_theme.dart';
@@ -190,17 +189,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         title: const Text(ArabicMessages.appTitle),
         actions: [
-          TextButton.icon(
+          IconButton(
             key: const ValueKey('logout-button'),
+            tooltip: ArabicMessages.logout,
             onPressed: _loggingOut ? null : _logout,
-            icon: const Icon(Icons.logout, color: AppColors.textOnPrimary),
-            label: const Text(
-              ArabicMessages.logout,
-              style: TextStyle(
-                fontFamily: AppFonts.family,
-                color: AppColors.textOnPrimary,
-                fontWeight: FontWeight.w600,
-              ),
+            icon: Transform.flip(
+              flipX: true,
+              child: const Icon(Icons.logout, color: AppColors.textOnPrimary),
             ),
           ),
         ],

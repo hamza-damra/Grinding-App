@@ -80,10 +80,10 @@ void main() {
       await pumpGrindingApp(tester, h);
 
       expect(find.text(ArabicMessages.appTitle), findsOneWidget);
-      expect(find.text(ArabicMessages.logout), findsOneWidget);
+      expect(find.byTooltip(ArabicMessages.logout), findsOneWidget);
       expect(find.text(ArabicMessages.scanButton), findsOneWidget);
       expect(find.text(ArabicMessages.manualEntryLabel), findsOneWidget);
-      expect(find.text(ArabicMessages.checkButton), findsOneWidget);
+      expect(find.byTooltip(ArabicMessages.checkButton), findsOneWidget);
       expect(queueTab(ArabicMessages.readyList), findsOneWidget);
       expect(queueTab(ArabicMessages.inGrindingList), findsOneWidget);
       expect(

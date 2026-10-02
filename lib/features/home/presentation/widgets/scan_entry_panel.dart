@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../../core/errors/arabic_messages.dart';
 import '../../../../core/formatting/digits.dart';
+import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/dimensions.dart';
 import '../../../../core/theme/text_theme.dart';
 import '../../../../core/widgets/primary_button.dart';
@@ -67,13 +68,20 @@ class ScanEntryPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
-            SizedBox(
-              width: 110,
-              child: PrimaryButton(
+            SizedBox.square(
+              dimension: AppSizes.buttonHeight,
+              child: IconButton.filled(
                 key: const ValueKey('manual-check'),
-                label: ArabicMessages.checkButton,
-                variant: PrimaryButtonVariant.orange,
+                tooltip: ArabicMessages.checkButton,
                 onPressed: () => onSubmit(controller.text),
+                icon: const Icon(Icons.search, size: AppSizes.iconLg),
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.accentOrange,
+                  foregroundColor: AppColors.textOnPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
               ),
             ),
           ],
